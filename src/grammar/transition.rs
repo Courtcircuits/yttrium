@@ -1,17 +1,26 @@
-use std::rc::Rc;
+use std::{env::current_dir, rc::Rc};
 
-use super::state::State;
+use super::{state::State, state_machine::StateMachine};
 
 pub enum ErrorTransition {
     InvalidTransition,
 }
 
+#[derive(Clone)]
+pub enum IndentationOperation {
+    BYPASS = 2,
+    INCREMENT = 1,
+    DESINCREMENT = -1,
+    CONSERVE = 0,
+    RESET = -2,
+}
 pub struct CharTransition {
     //using rc because state can be shared between multiple transitions but no mutation should
     //occur
     pub from: Rc<State>,
     pub to: Rc<State>,
     pub value: String,
+    pub indentation_operation: IndentationOperation,
 }
 
 pub struct EpsilonTransition {
@@ -19,40 +28,193 @@ pub struct EpsilonTransition {
     pub to: Rc<State>,
 }
 
+pub struct GroupTransition {
+    pub from: Rc<State>,
+    pub to: Rc<State>,
+    pub value: Box<StateMachine>,
+    pub indentation_operation: IndentationOperation,
+}
+
 pub trait Transition {
     fn from(&self) -> Rc<State>;
-    fn new(from: Rc<State>, to: Rc<State>, check: String) -> Self;
-    fn to(&self, buffer: String, offset: i32) -> Result<Rc<State>, ErrorTransition>;
+    fn to(
+        &self,
+        buffer: String,
+        offset: usize,
+        current_indentation: i32,
+        indentation_character: String,
+    ) -> Result<(Rc<State>, usize), ErrorTransition>;
+    fn indentation_operation(&self) -> IndentationOperation;
+}
+
+impl Transition for GroupTransition {
+    fn from(&self) -> Rc<State> {
+        self.from.clone()
+    }
+
+    fn to(
+        &self,
+        buffer: String,
+        offset: usize,
+        _current_indentation: i32,
+        _indentation_character: String,
+    ) -> Result<(Rc<State>, usize), ErrorTransition> {
+        let (validation, new_offset) =
+            (*self.value).validate_from(buffer, offset, _current_indentation);
+        println!("new offset : {}", new_offset);
+        if validation {
+            Ok((self.to.clone(), new_offset - offset))
+        } else {
+            Err(ErrorTransition::InvalidTransition)
+        }
+    }
+
+    fn indentation_operation(&self) -> IndentationOperation {
+        self.indentation_operation.clone()
+    }
+}
+
+impl GroupTransition {
+    pub fn new(
+        from: Rc<State>,
+        to: Rc<State>,
+        state_machine: StateMachine,
+        indentation_operation: IndentationOperation,
+    ) -> Self {
+        GroupTransition {
+            from,
+            to,
+            value: Box::new(state_machine),
+            indentation_operation,
+        }
+    }
 }
 
 impl Transition for CharTransition {
-    fn new(from: Rc<State>, to: Rc<State>, check: String) -> CharTransition {
+    fn from(&self) -> Rc<State> {
+        self.from.clone()
+    }
+    fn to(
+        &self,
+        buffer: String,
+        offset: usize,
+        current_indentation: i32,
+        indentation_character: String,
+    ) -> Result<(Rc<State>, usize), ErrorTransition> {
+        if buffer.chars().nth(offset).unwrap().to_string() == self.value {
+            println!(
+                "{}, i : {}",
+                buffer.chars().nth(offset).unwrap().to_string(),
+                current_indentation
+            );
+            match self.indentation_operation {
+                IndentationOperation::BYPASS => Ok((self.to.clone(), 1)),
+                IndentationOperation::INCREMENT => {
+                    let offset = offset as i32;
+                    for n in (offset + 1)..(offset + 2 + current_indentation) {
+                        if buffer.chars().nth(n as usize).unwrap().to_string()
+                            == indentation_character
+                        {
+                            continue;
+                        }
+                        return Err(ErrorTransition::InvalidTransition);
+                    }
+                    Ok((self.to.clone(), (current_indentation + 2) as usize))
+                }
+                IndentationOperation::DESINCREMENT => {
+                    let offset = offset as i32;
+                    if current_indentation == 0 {
+                        return Err(ErrorTransition::InvalidTransition);
+                    }
+                    for n in (offset + 1)..(offset + 1 + current_indentation - 1) {
+                        if buffer.chars().nth(n as usize).unwrap().to_string()
+                            == indentation_character
+                        {
+                            continue;
+                        }
+                        return Err(ErrorTransition::InvalidTransition);
+                    }
+                    Ok((self.to.clone(), (current_indentation) as usize))
+                }
+                IndentationOperation::CONSERVE => {
+                    let offset = offset as i32;
+                    for n in (offset + 1)..(offset + 1 + current_indentation) {
+                        if buffer.chars().nth(n as usize).unwrap().to_string()
+                            == indentation_character
+                        {
+                            continue;
+                        }
+                        return Err(ErrorTransition::InvalidTransition);
+                    }
+                    Ok((self.to.clone(), (current_indentation + 1) as usize))
+                }
+                IndentationOperation::RESET => Ok((self.to.clone(), 1)),
+            }
+        } else {
+            Err(ErrorTransition::InvalidTransition)
+        }
+    }
+
+    fn indentation_operation(&self) -> IndentationOperation {
+        self.indentation_operation.clone()
+    }
+}
+
+impl CharTransition {
+    pub fn new(
+        from: Rc<State>,
+        to: Rc<State>,
+        check: String,
+        indentation_operation: IndentationOperation,
+    ) -> CharTransition {
         CharTransition {
             from,
             to,
             value: check,
-        }
-    }
-    fn from(&self) -> Rc<State> {
-        self.from.clone()
-    }
-    fn to(&self, buffer: String, offset: i32) -> Result<Rc<State>, ErrorTransition> {
-        if buffer.chars().nth(offset as usize).unwrap().to_string() == self.value {
-            Ok(self.to.clone())
-        } else {
-            Err(ErrorTransition::InvalidTransition)
+            indentation_operation,
         }
     }
 }
 
 impl Transition for EpsilonTransition {
-    fn new(from: Rc<State>, to: Rc<State>, _useless: String) -> EpsilonTransition {
-        EpsilonTransition { from, to }
-    }
     fn from(&self) -> Rc<State> {
         self.from.clone()
     }
-    fn to(&self, _buffer: String, _offset: i32) -> Result<Rc<State>, ErrorTransition> {
-        Ok(self.to.clone())
+    fn to(
+        &self,
+        _buffer: String,
+        _offset: usize,
+        _current_indentation: i32,
+        _indentation_character: String,
+    ) -> Result<(Rc<State>, usize), ErrorTransition> {
+        Ok((self.to.clone(), 0))
     }
+    fn indentation_operation(&self) -> IndentationOperation {
+        IndentationOperation::BYPASS
+    }
+}
+
+impl EpsilonTransition {
+    pub fn new(from: Rc<State>, to: Rc<State>) -> EpsilonTransition {
+        EpsilonTransition { from, to }
+    }
+}
+
+pub fn create_char_transitions(
+    from: Rc<State>,
+    to: Rc<State>,
+    alphabet: String,
+    indentation_operation: IndentationOperation,
+) -> Vec<Rc<dyn Transition>> {
+    let mut transitions: Vec<Rc<dyn Transition>> = Vec::new();
+    let letters: Vec<&str> = alphabet.split("").collect();
+    for letter in letters {
+        transitions.push(Rc::new(CharTransition::new(
+            from.clone(),
+            to.clone(),
+            letter.to_string(),
+            indentation_operation.clone(),
+        )));
+    }
+    transitions
 }

@@ -1,23 +1,38 @@
+use std::hash::Hash;
+use std::hash::Hasher;
+
+#[derive(Debug)]
 pub struct State {
-    pub isFinal: bool,
-    pub uuid: String,
+    pub is_final: bool,
+    pub label: String,
 }
 
-pub fn create_state(isFinal: bool) -> State {
-    State::new(isFinal)
+pub fn create_state(is_final: bool, label: &str) -> State {
+    State::new(is_final, label.to_string())
 }
 
 impl State {
-    pub fn new(isFinal: bool) -> State {
-        State {
-            isFinal,
-            uuid: uuid::Uuid::new_v4().to_string(),
-        }
+    pub fn new(is_final: bool, label: String) -> State {
+        State { is_final, label }
     }
     pub fn is_final(&self) -> bool {
-        self.isFinal
+        self.is_final
     }
     pub fn equals(&self, other: &State) -> bool {
-        self.uuid == other.uuid
+        self.label == other.label
+    }
+}
+
+impl PartialEq for State {
+    fn eq(&self, other: &Self) -> bool {
+        self.label == other.label
+    }
+}
+
+impl Eq for State {}
+
+impl Hash for State {
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        self.label.hash(state);
     }
 }
