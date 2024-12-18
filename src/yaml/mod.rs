@@ -1,3 +1,4 @@
+pub mod document;
 pub mod kv;
 pub mod scalar;
 pub mod sequence;

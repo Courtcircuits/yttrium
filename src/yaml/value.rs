@@ -9,7 +9,7 @@ use crate::grammar::{
 use super::{scalar::scalar_transition, sequence::sequence_transition};
 
 pub fn value_state_machine(indentation: i32) -> StateMachine {
-    let begin = Rc::new(create_state(false, "start")); //value can't be empty
+    let begin = Rc::new(create_state(false, "start_value")); //value can't be empty
     let scalar = Rc::new(create_state(true, "scalar"));
     let multiline = Rc::new(create_state(false, "multiline"));
     let sequence = Rc::new(create_state(true, "sequence"));
@@ -34,11 +34,10 @@ pub fn value_state_machine(indentation: i32) -> StateMachine {
         crate::grammar::transition::IndentationOperation::BYPASS,
     ));
 
-    let automaton = StateMachineBuilder::new(begin, " ", indentation)
+    StateMachineBuilder::new(begin, " ", indentation)
         .add_transitions(vec![b_s, b_m, m_s])
         .add_states(vec![scalar, multiline, sequence])
-        .build();
-    automaton
+        .build()
 }
 
 pub fn value_transition(
@@ -73,6 +72,19 @@ mod tests {
         let machine = value_state_machine(0);
 
         let (result, offset) = machine.validate(val.to_string());
+        assert_eq!(result, true);
+        assert_eq!(val.len(), offset);
+    }
+
+    #[test]
+    fn test_value_state_machine_recognize_seq_inc_1() {
+        let val = "
+  -test
+  -ewq
+  -adssca";
+        let machine = value_state_machine(1);
+
+        let (result, offset) = machine.validate_from(val.to_string(), 0, 1);
         assert_eq!(result, true);
         assert_eq!(val.len(), offset);
     }

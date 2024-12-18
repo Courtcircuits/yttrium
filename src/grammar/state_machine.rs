@@ -1,6 +1,11 @@
 use std::{collections::HashMap, rc::Rc};
 
-use super::{state::State, transition::Transition};
+use tracing::debug;
+
+use super::{
+    state::State,
+    transition::{IndentationOperation, Transition},
+};
 
 pub struct StateMachine {
     pub states: Vec<Rc<State>>,
@@ -36,6 +41,8 @@ impl StateMachine {
         let mut current_indentation = indentation;
         let mut transition_map: HashMap<Rc<State>, Vec<&Rc<(dyn Transition)>>> = HashMap::new();
 
+        debug!("starting validating from {:?}", current_state);
+
         //init data structure so it gets dropped by the borrow checker when no longer needed
         for transition in &self.transitions {
             let from = transition.from();
@@ -46,6 +53,7 @@ impl StateMachine {
         }
 
         while offset < buffer.len() {
+            debug!("we are at {}", offset);
             if !transition_map.contains_key(&current_state) {
                 if offset < 1 {
                     return (false, offset);
@@ -54,6 +62,9 @@ impl StateMachine {
             }
 
             let transitions = transition_map.get(&current_state).unwrap();
+            let mut matched = false;
+
+            debug!("needs to match {}, {}", offset, buffer);
             for transition in transitions {
                 match transition.to(
                     buffer.clone(),
@@ -65,31 +76,36 @@ impl StateMachine {
                         let (new_current_state, offset_inc) = next_state;
                         current_state = new_current_state;
                         offset += offset_inc;
-                        if offset < 1 {
-                            return (false, offset);
-                        }
+                        matched = true;
 
                         match transition.indentation_operation() {
-                            super::transition::IndentationOperation::BYPASS => {
+                            IndentationOperation::BYPASS => {
                                 current_indentation += 0;
                             }
-                            super::transition::IndentationOperation::INCREMENT => {
+                            IndentationOperation::INCREMENT => {
                                 current_indentation += 1;
                             }
-                            super::transition::IndentationOperation::DESINCREMENT => {
+                            IndentationOperation::DESINCREMENT => {
                                 current_indentation -= 1;
                             }
-                            super::transition::IndentationOperation::CONSERVE => {
+                            IndentationOperation::CONSERVE => {
                                 current_indentation += 0;
                             }
-                            super::transition::IndentationOperation::RESET => {
-                                current_indentation += 0;
+                            IndentationOperation::RESET => {
+                                current_indentation = 0;
                             }
                         };
                         break;
                     }
                     Err(ErrorTransition) => {}
                 };
+            }
+
+            if !matched {
+                if offset < 1 {
+                    return (false, offset);
+                }
+                return (current_state.is_final(), offset);
             }
         }
 

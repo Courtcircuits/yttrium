@@ -1,5 +1,7 @@
 use std::{env::current_dir, rc::Rc};
 
+use tracing::{debug, info};
+
 use super::{state::State, state_machine::StateMachine};
 
 pub enum ErrorTransition {
@@ -61,7 +63,6 @@ impl Transition for GroupTransition {
     ) -> Result<(Rc<State>, usize), ErrorTransition> {
         let (validation, new_offset) =
             (*self.value).validate_from(buffer, offset, _current_indentation);
-        println!("new offset : {}", new_offset);
         if validation {
             Ok((self.to.clone(), new_offset - offset))
         } else {
@@ -102,11 +103,7 @@ impl Transition for CharTransition {
         indentation_character: String,
     ) -> Result<(Rc<State>, usize), ErrorTransition> {
         if buffer.chars().nth(offset).unwrap().to_string() == self.value {
-            println!(
-                "{}, i : {}",
-                buffer.chars().nth(offset).unwrap().to_string(),
-                current_indentation
-            );
+            debug!("is: {}", self.to.label);
             match self.indentation_operation {
                 IndentationOperation::BYPASS => Ok((self.to.clone(), 1)),
                 IndentationOperation::INCREMENT => {
@@ -119,6 +116,7 @@ impl Transition for CharTransition {
                         }
                         return Err(ErrorTransition::InvalidTransition);
                     }
+                    debug!("adding offset : {} ", current_indentation + 2);
                     Ok((self.to.clone(), (current_indentation + 2) as usize))
                 }
                 IndentationOperation::DESINCREMENT => {
@@ -151,6 +149,7 @@ impl Transition for CharTransition {
                 IndentationOperation::RESET => Ok((self.to.clone(), 1)),
             }
         } else {
+            debug!("not: {}", self.to.label);
             Err(ErrorTransition::InvalidTransition)
         }
     }
