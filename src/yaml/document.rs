@@ -3,102 +3,88 @@ use std::rc::Rc;
 use crate::grammar::{
     state::create_state,
     state_machine::{StateMachine, StateMachineBuilder},
-    transition::{CharTransition, EpsilonTransition, GroupTransition, IndentationOperation},
+    transition::{create_word_transition, CharTransition, IndentationOperation},
 };
 
-use super::sequence::sequence_state_machine;
-
-fn three_tick_machine(indentation: i32) -> StateMachine {
-    let begin = Rc::new(create_state(false, "start"));
-    let first = Rc::new(create_state(false, "first"));
-    let second = Rc::new(create_state(false, "second"));
-    let last = Rc::new(create_state(false, "last"));
-    let eol = Rc::new(create_state(true, "eol"));
-
-    let b_f = Rc::new(CharTransition::new(
-        begin.clone(),
-        first.clone(),
-        "-".to_string(),
-        IndentationOperation::BYPASS,
-    ));
-
-    let f_s = Rc::new(CharTransition::new(
-        first.clone(),
-        second.clone(),
-        "-".to_string(),
-        IndentationOperation::BYPASS,
-    ));
-
-    let s_l = Rc::new(CharTransition::new(
-        second.clone(),
-        last.clone(),
-        "-".to_string(),
-        IndentationOperation::BYPASS,
-    ));
-
-    let l_e = Rc::new(CharTransition::new(
-        last.clone(),
-        eol.clone(),
-        "\n".to_string(),
-        IndentationOperation::CONSERVE,
-    ));
-
-    StateMachineBuilder::new(begin, " ", indentation)
-        .add_transitions(vec![b_f, f_s, s_l, l_e])
-        .add_states(vec![first, second, last, eol])
-        .build()
-}
+use super::{kv::kv_transition, scalar::scalar_transition, value::value_transition};
 
 pub fn document_state_machine(indentation: i32) -> StateMachine {
-    let begin = Rc::new(create_state(false, "start")); //value can't be empty
-    let start_body = Rc::new(create_state(false, "start_body"));
+    let begin_doc = Rc::new(create_state(false, "begin_doc"));
+    let header = Rc::new(create_state(false, "header"));
+    let header_end = Rc::new(create_state(false, "header_end"));
     let body = Rc::new(create_state(false, "body"));
-    let end_body = Rc::new(create_state(true, "end_body"));
+    let back = Rc::new(create_state(false, "back"));
+    let end = Rc::new(create_state(true, "end"));
 
-    let b_s = Rc::new(GroupTransition::new(
-        begin.clone(),
-        start_body.clone(),
-        three_tick_machine(indentation),
+    let header_ts = create_word_transition(
+        begin_doc.clone(),
+        header.clone(),
+        "---".to_string(),
         IndentationOperation::BYPASS,
+        indentation,
+    );
+
+    let header_end_ts = Rc::new(CharTransition::new(
+        header.clone(),
+        header_end.clone(),
+        "\n".to_string(),
+        IndentationOperation::RESET,
     ));
 
-    let s_b = Rc::new(GroupTransition::new(
-        start_body.clone(),
+    let body_ts = Rc::new(kv_transition(
+        header_end.clone(),
         body.clone(),
-        sequence_state_machine(indentation),
+        indentation,
         IndentationOperation::BYPASS,
     ));
 
-    let b_s_e = Rc::new(EpsilonTransition::new(body.clone(), start_body.clone()));
-    let s_b_e = Rc::new(EpsilonTransition::new(start_body.clone(), body.clone()));
-
-    let b_e = Rc::new(GroupTransition::new(
+    let back_ts = Rc::new(CharTransition::new(
         body.clone(),
-        end_body.clone(),
-        three_tick_machine(indentation),
-        IndentationOperation::BYPASS,
+        header_end.clone(),
+        "\n".to_string(),
+        IndentationOperation::RESET,
     ));
 
-    StateMachineBuilder::new(begin, " ", indentation)
-        .add_transitions(vec![b_s, s_b, b_s_e, s_b_e, b_e])
-        .add_states(vec![start_body, body, end_body])
+    let end_ts = create_word_transition(
+        header_end.clone(),
+        end.clone(),
+        "---".to_string(),
+        IndentationOperation::BYPASS,
+        indentation,
+    );
+
+    StateMachineBuilder::new(begin_doc.clone(), " ", indentation)
+        .add_states(vec![header, header_end, body, back, end])
+        .add_transitions(vec![header_ts, header_end_ts, body_ts, back_ts, end_ts])
         .build()
 }
 
-// #[cfg(test)]
-// mod tests {
-//     use std::result;
+#[cfg(test)]
+mod tests {
+    use super::document_state_machine;
 
-//     use super::document_state_machine;
+    #[test]
+    fn test_document_state_machine_recognize_kv_doc() {
+        let val = "---
+test:test
+---";
+        let machine = document_state_machine(0);
+        let (result, offset) = machine.validate(val.to_string());
+        assert_eq!(result, true);
+        assert_eq!(val.len(), offset);
+    }
 
-//     #[test]
-//     fn test_document_state_machine_recognize_empty_doc() {
-//         let val = "---
-// ---
-// ";
-//         let machine = document_state_machine(0);
-//         let (result, offset) = machine.validate(val.to_string());
-//         assert_eq!(result, true);
-//         assert_eq!(val.len(), offset);
-//     }
-// }
+    #[test]
+    fn test_document_state_machine_recognize_kv_complex_doc() {
+        let val = "---
+zob:test
+test:
+ zob:
+  -test
+---";
+        let machine = document_state_machine(0);
+        let (result, offset) = machine.validate(val.to_string());
+        assert_eq!(result, true);
+        assert_eq!(val.len(), offset);
+    }
+}

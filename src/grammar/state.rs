@@ -1,7 +1,7 @@
+use core::fmt;
 use std::hash::Hash;
 use std::hash::Hasher;
 
-#[derive(Debug)]
 pub struct State {
     pub is_final: bool,
     pub label: String,
@@ -20,6 +20,15 @@ impl State {
     }
     pub fn equals(&self, other: &State) -> bool {
         self.label == other.label
+    }
+}
+
+impl fmt::Debug for State {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        if (*self).is_final {
+            return write!(f, "|{}|", self.label);
+        }
+        write!(f, "{}", self.label)
     }
 }
 

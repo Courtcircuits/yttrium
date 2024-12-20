@@ -2,9 +2,11 @@ use std::{collections::HashMap, rc::Rc};
 
 use tracing::debug;
 
+use crate::grammar::transition::CharTransition;
+
 use super::{
     state::State,
-    transition::{IndentationOperation, Transition},
+    transition::{self, IndentationOperation, Transition},
 };
 
 pub struct StateMachine {
@@ -45,6 +47,7 @@ impl StateMachine {
 
         //init data structure so it gets dropped by the borrow checker when no longer needed
         for transition in &self.transitions {
+            debug!("registering {:?}", transition.from());
             let from = transition.from();
             transition_map
                 .entry(from)
@@ -53,7 +56,6 @@ impl StateMachine {
         }
 
         while offset < buffer.len() {
-            debug!("we are at {}", offset);
             if !transition_map.contains_key(&current_state) {
                 if offset < 1 {
                     return (false, offset);

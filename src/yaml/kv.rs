@@ -1,11 +1,11 @@
-use std::{io::Stdout, iter::Scan, rc::Rc};
+use std::rc::Rc;
 
 use tracing::debug;
 
 use crate::grammar::{
     state::{create_state, State},
     state_machine::{StateMachine, StateMachineBuilder},
-    transition::{CharTransition, EpsilonTransition, GroupTransition, IndentationOperation},
+    transition::{CharTransition, GroupTransition, IndentationOperation},
 };
 
 use super::{scalar::scalar_transition, value::value_transition};
@@ -16,7 +16,6 @@ pub fn kv_state_machine(indentation: i32) -> StateMachine {
     let column = Rc::new(create_state(false, "column"));
     let value = Rc::new(create_state(true, "value"));
     let nested_kv = Rc::new(create_state(false, "nested_kv"));
-    let next_kv = Rc::new(create_state(false, "next_kv"));
 
     let b_k = Rc::new(scalar_transition(
         begin.clone(),
@@ -53,23 +52,9 @@ pub fn kv_state_machine(indentation: i32) -> StateMachine {
         IndentationOperation::BYPASS,
     ));
 
-    let val_next = Rc::new(CharTransition::new(
-        value.clone(),
-        next_kv.clone(),
-        "\n".to_string(),
-        IndentationOperation::CONSERVE,
-    ));
-
-    let next_key = Rc::new(scalar_transition(
-        next_kv.clone(),
-        key.clone(),
-        indentation,
-        IndentationOperation::BYPASS,
-    ));
-
     let automaton = StateMachineBuilder::new(begin, " ", indentation)
-        .add_states(vec![key, column, value, nested_kv, next_kv])
-        .add_transitions(vec![b_k, k_c, c_v, c_n, n_b, val_next, next_key])
+        .add_states(vec![key, column, value, nested_kv])
+        .add_transitions(vec![b_k, k_c, c_v, c_n, n_b])
         .build();
 
     debug!("built kv state machine");
@@ -104,16 +89,6 @@ mod tests {
     fn test_kv_state_machine_recognize_kv_nested() {
         let kv = "salut:
  test:zob";
-        let machine = kv_state_machine(0);
-        let (result, offset) = machine.validate(kv.to_string());
-        assert_eq!(result, true);
-        assert_eq!(kv.len(), offset);
-    }
-
-    #[test]
-    fn test_kv_state_machine_recognize_kv_next() {
-        let kv = "salut:zob
-test:zob";
         let machine = kv_state_machine(0);
         let (result, offset) = machine.validate(kv.to_string());
         assert_eq!(result, true);

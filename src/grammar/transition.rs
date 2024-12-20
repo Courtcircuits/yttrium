@@ -1,8 +1,12 @@
-use std::{env::current_dir, rc::Rc};
+use core::fmt;
+use std::rc::Rc;
 
-use tracing::{debug, info};
+use tracing::debug;
 
-use super::{state::State, state_machine::StateMachine};
+use super::{
+    state::{create_state, State},
+    state_machine::{StateMachine, StateMachineBuilder},
+};
 
 pub enum ErrorTransition {
     InvalidTransition,
@@ -175,6 +179,12 @@ impl CharTransition {
     }
 }
 
+impl fmt::Debug for CharTransition {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        write!(f, "{:?} -> {} -> {:?}", self.from, self.value, self.to)
+    }
+}
+
 impl Transition for EpsilonTransition {
     fn from(&self) -> Rc<State> {
         self.from.clone()
@@ -216,4 +226,85 @@ pub fn create_char_transitions(
         )));
     }
     transitions
+}
+
+pub fn create_word_transition(
+    from: Rc<State>,
+    to: Rc<State>,
+    word: String,
+    indentation_operation: IndentationOperation,
+    current_indentation: i32,
+) -> Rc<dyn Transition> {
+    let mut states: Vec<Rc<State>> = Vec::new();
+    let mut transitions: Vec<Rc<dyn Transition>> = Vec::new();
+    let mut start = Rc::new(create_state(true, "zob"));
+
+    for i in 0..word.len() + 1 {
+        let state = Rc::new(create_state(
+            i == word.len(),
+            format!("letter-{}", i).as_str(),
+        ));
+
+        if i == 0 {
+            start = state.clone();
+        }
+
+        // println!("state : {:?}", state);
+        states.push(state.clone());
+
+        if i > 0 {
+            let char = word.chars().nth(i - 1).unwrap().to_string();
+            let transition = Rc::new(CharTransition::new(
+                states[i - 1].clone(),
+                state.clone(),
+                char.clone(),
+                IndentationOperation::BYPASS,
+            ));
+            transitions.push(transition);
+        }
+    }
+
+    let state_machine = StateMachineBuilder::new(start.clone(), " ", current_indentation)
+        .add_states(states.clone())
+        .add_transitions(transitions)
+        .build();
+
+    Rc::new(GroupTransition::new(
+        from,
+        to,
+        state_machine,
+        indentation_operation,
+    ))
+}
+
+#[cfg(test)]
+mod tests {
+    use std::rc::Rc;
+
+    use crate::grammar::{state::create_state, state_machine::StateMachineBuilder};
+
+    use super::{create_word_transition, IndentationOperation};
+
+    #[test]
+    fn test_word_transition() {
+        let word = "---".to_string();
+        let start = Rc::new(create_state(false, "start"));
+        let end = Rc::new(create_state(true, "end"));
+        let transition = create_word_transition(
+            start.clone(),
+            end.clone(),
+            word.clone(),
+            IndentationOperation::BYPASS,
+            0,
+        );
+
+        let machine = StateMachineBuilder::new(start, " ", 0)
+            .add_state(end)
+            .add_transition(transition)
+            .build();
+
+        let (result, offset) = machine.validate(word.clone());
+        assert_eq!(result, true);
+        assert_eq!(word.len(), offset);
+    }
 }
